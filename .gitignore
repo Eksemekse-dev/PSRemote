@@ -1,0 +1,8 @@
+build/
+Payload/
+*.ipa
+*.xcuserstate
+xcuserdata/
+.DS_Store
+PSRemote.xcodeproj/
+DerivedData/

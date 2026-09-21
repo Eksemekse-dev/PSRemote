@@ -1,0 +1,58 @@
+name: PSRemote
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    ENABLE_BITCODE: NO
+    CLANG_CXX_LANGUAGE_STANDARD: "c++17"
+    CLANG_CXX_LIBRARY: "libc++"
+
+targets:
+  PSRemote:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: PSRemote
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.psremote
+        PRODUCT_NAME: PSRemote
+        INFOPLIST_FILE: PSRemote/Info.plist
+        CODE_SIGN_ENTITLEMENTS: PSRemote/PSRemote.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        SWIFT_OBJC_BRIDGING_HEADER: PSRemote/Bridge/PSRemote-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/PSRemote/Bridge
+        OTHER_LDFLAGS:
+          - -lc++
+          - -lz
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    info:
+      path: PSRemote/Info.plist
+      properties:
+        CFBundleDisplayName: PS Remote
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortrait
+        UIRequiredDeviceCapabilities:
+          - arm64
+        NSLocalNetworkUsageDescription: "Aplikacja potrzebuje dostepu do sieci lokalnej, aby znalezc konsole PlayStation."
+        NSBonjourServices:
+          - "_ps4waker._tcp"
+          - "_ps5waker._tcp"
+        UIViewControllerBasedStatusBarAppearance: false
