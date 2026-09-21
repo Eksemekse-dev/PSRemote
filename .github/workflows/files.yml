@@ -1,56 +1,773 @@
-name: Build IPA
+name: Bootstrap Project
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build:
-    runs-on: macos-14
-    timeout-minutes: 45
+  bootstrap:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Build (unsigned)
+      - name: Configure git
         run: |
-          xcodebuild \
-            -project PSRemote.xcodeproj \
-            -scheme PSRemote \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
-            build
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Package IPA
+      - name: Create directory structure
         run: |
-          mkdir -p Payload
-          cp -r build/Build/Products/Release-iphoneos/PSRemote.app Payload/
-          zip -qr PSRemote.ipa Payload
-          ls -lh PSRemote.ipa
+          mkdir -p .github/workflows
+          mkdir -p PSRemote/App
+          mkdir -p PSRemote/Models
+          mkdir -p PSRemote/Views
+          mkdir -p PSRemote/Bridge
+          mkdir -p PSRemote/Resources/Assets.xcassets/AppIcon.appiconset
+          mkdir -p Frameworks
 
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PSRemote-unsigned-ipa
-          path: PSRemote.ipa
-          retention-days: 30
+      - name: Write build workflow
+        run: |
+          cat > .github/workflows/build.yml << 'EOF'
+          name: Build IPA
+
+          on:
+            push:
+              branches: [ main ]
+            pull_request:
+              branches: [ main ]
+            workflow_dispatch:
+
+          jobs:
+            build:
+              runs-on: macos-14
+              timeout-minutes: 45
+
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v4
+                  with:
+                    submodules: recursive
+
+                - name: Select Xcode
+                  run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+                - name: Install XcodeGen
+                  run: brew install xcodegen
+
+                - name: Generate Xcode project
+                  run: xcodegen generate
+
+                - name: Build (unsigned)
+                  run: |
+                    xcodebuild \
+                      -project PSRemote.xcodeproj \
+                      -scheme PSRemote \
+                      -configuration Release \
+                      -sdk iphoneos \
+                      -derivedDataPath build \
+                      CODE_SIGNING_ALLOWED=NO \
+                      CODE_SIGNING_REQUIRED=NO \
+                      CODE_SIGN_IDENTITY="" \
+                      CODE_SIGN_ENTITLEMENTS="" \
+                      build
+
+                - name: Package IPA
+                  run: |
+                    mkdir -p Payload
+                    cp -r build/Build/Products/Release-iphoneos/PSRemote.app Payload/
+                    zip -qr PSRemote.ipa Payload
+                    ls -lh PSRemote.ipa
+
+                - name: Upload IPA artifact
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: PSRemote-unsigned-ipa
+                    path: PSRemote.ipa
+                    retention-days: 30
+          EOF
+
+      - name: Write project.yml
+        run: |
+          cat > project.yml << 'EOF'
+          name: PSRemote
+          options:
+            bundleIdPrefix: com.example
+            deploymentTarget:
+              iOS: "15.0"
+            createIntermediateGroups: true
+            generateEmptyDirectories: true
+
+          settings:
+            base:
+              SWIFT_VERSION: "5.9"
+              IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+              ENABLE_BITCODE: NO
+              CLANG_CXX_LANGUAGE_STANDARD: "c++17"
+              CLANG_CXX_LIBRARY: "libc++"
+
+          targets:
+            PSRemote:
+              type: application
+              platform: iOS
+              deploymentTarget: "15.0"
+              sources:
+                - path: PSRemote
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.example.psremote
+                  PRODUCT_NAME: PSRemote
+                  INFOPLIST_FILE: PSRemote/Info.plist
+                  CODE_SIGN_ENTITLEMENTS: PSRemote/PSRemote.entitlements
+                  TARGETED_DEVICE_FAMILY: "1,2"
+                  SUPPORTS_MACCATALYST: NO
+                  SWIFT_OBJC_BRIDGING_HEADER: PSRemote/Bridge/PSRemote-Bridging-Header.h
+                  HEADER_SEARCH_PATHS:
+                    - $(SRCROOT)/PSRemote/Bridge
+                  OTHER_LDFLAGS:
+                    - -lc++
+                    - -lz
+                  ENABLE_USER_SCRIPT_SANDBOXING: NO
+              info:
+                path: PSRemote/Info.plist
+                properties:
+                  CFBundleDisplayName: PS Remote
+                  CFBundleShortVersionString: "0.1.0"
+                  CFBundleVersion: "1"
+                  UILaunchScreen: {}
+                  UIApplicationSceneManifest:
+                    UIApplicationSupportsMultipleScenes: false
+                  UISupportedInterfaceOrientations:
+                    - UIInterfaceOrientationLandscapeLeft
+                    - UIInterfaceOrientationLandscapeRight
+                    - UIInterfaceOrientationPortrait
+                  UIRequiredDeviceCapabilities:
+                    - arm64
+                  NSLocalNetworkUsageDescription: "Aplikacja potrzebuje dostepu do sieci lokalnej, aby znalezc konsole PlayStation."
+                  NSBonjourServices:
+                    - "_ps4waker._tcp"
+                    - "_ps5waker._tcp"
+                  UIViewControllerBasedStatusBarAppearance: false
+          EOF
+
+      - name: Write Info.plist
+        run: |
+          cat > PSRemote/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict/>
+          </plist>
+          EOF
+
+      - name: Write entitlements
+        run: |
+          cat > PSRemote/PSRemote.entitlements << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.developer.networking.multicast</key>
+              <true/>
+              <key>com.apple.developer.networking.wifi-info</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Write Swift - PSRemoteApp
+        run: |
+          cat > PSRemote/App/PSRemoteApp.swift << 'EOF'
+          import SwiftUI
+
+          @main
+          struct PSRemoteApp: App {
+              @StateObject private var appState = AppState()
+
+              var body: some Scene {
+                  WindowGroup {
+                      ContentView()
+                          .environmentObject(appState)
+                          .preferredColorScheme(.dark)
+                  }
+              }
+          }
+          EOF
+
+      - name: Write Swift - AppState
+        run: |
+          cat > PSRemote/App/AppState.swift << 'EOF'
+          import Foundation
+          import Combine
+
+          @MainActor
+          final class AppState: ObservableObject {
+              @Published var discoveredConsoles: [Console] = []
+              @Published var isDiscovering: Bool = false
+              @Published var activeConsole: Console?
+              @Published var logLines: [String] = []
+
+              private var discovery: ChiakiDiscovery?
+
+              func startDiscovery() {
+                  guard !isDiscovering else { return }
+                  isDiscovering = true
+                  discoveredConsoles.removeAll()
+                  log("Uruchamiam discovery...")
+
+                  discovery = ChiakiDiscovery()
+                  discovery?.onConsoleFound = { [weak self] info in
+                      guard let self else { return }
+                      Task { @MainActor in
+                          guard let console = Console(info: info) else { return }
+                          if !self.discoveredConsoles.contains(where: { $0.host == console.host }) {
+                              self.discoveredConsoles.append(console)
+                              self.log("Znaleziono: \(console.name) @ \(console.host)")
+                          }
+                      }
+                  }
+                  discovery?.onError = { [weak self] error in
+                      Task { @MainActor in
+                          self?.log("Blad discovery: \(error)")
+                      }
+                  }
+                  discovery?.start()
+              }
+
+              func stopDiscovery() {
+                  discovery?.stop()
+                  discovery = nil
+                  isDiscovering = false
+                  log("Zatrzymano discovery.")
+              }
+
+              func log(_ message: String) {
+                  let ts = ISO8601DateFormatter().string(from: Date())
+                  logLines.append("[\(ts)] \(message)")
+                  print("[PSRemote] \(message)")
+              }
+          }
+          EOF
+
+      - name: Write Swift - Console model
+        run: |
+          cat > PSRemote/Models/Console.swift << 'EOF'
+          import Foundation
+
+          struct Console: Identifiable, Hashable {
+              let id = UUID()
+              let name: String
+              let host: String
+              let port: UInt16
+              let isPS5: Bool
+
+              init?(info: [AnyHashable: Any]) {
+                  guard
+                      let name = info["name"] as? String,
+                      let host = info["host"] as? String
+                  else { return nil }
+                  self.name = name
+                  self.host = host
+                  self.port = UInt16(truncating: (info["port"] as? NSNumber) ?? 9295)
+                  self.isPS5 = (info["isPS5"] as? NSNumber)?.boolValue ?? false
+              }
+
+              static func == (lhs: Console, rhs: Console) -> Bool {
+                  lhs.host == rhs.host
+              }
+
+              func hash(into hasher: inout Hasher) {
+                  hasher.combine(host)
+              }
+          }
+          EOF
+
+      - name: Write Swift - ContentView
+        run: |
+          cat > PSRemote/Views/ContentView.swift << 'EOF'
+          import SwiftUI
+
+          struct ContentView: View {
+              @EnvironmentObject var appState: AppState
+
+              var body: some View {
+                  NavigationStack {
+                      DiscoveryView()
+                  }
+              }
+          }
+          EOF
+
+      - name: Write Swift - DiscoveryView
+        run: |
+          cat > PSRemote/Views/DiscoveryView.swift << 'EOF'
+          import SwiftUI
+
+          struct DiscoveryView: View {
+              @EnvironmentObject var appState: AppState
+              @State private var showLog = false
+
+              var body: some View {
+                  List {
+                      Section("Znalezione konsole") {
+                          if appState.discoveredConsoles.isEmpty {
+                              Text(appState.isDiscovering ? "Szukam..." : "Brak konsol")
+                                  .foregroundStyle(.secondary)
+                          } else {
+                              ForEach(appState.discoveredConsoles) { console in
+                                  Button {
+                                      appState.activeConsole = console
+                                      appState.stopDiscovery()
+                                  } label: {
+                                      HStack {
+                                          Image(systemName: console.isPS5 ? "gamecontroller.fill" : "gamecontroller")
+                                          VStack(alignment: .leading) {
+                                              Text(console.name).font(.headline)
+                                              Text(console.host).font(.caption).foregroundStyle(.secondary)
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  .navigationTitle("PS Remote")
+                  .toolbar {
+                      ToolbarItem(placement: .topBarTrailing) {
+                          Button {
+                              appState.isDiscovering ? appState.stopDiscovery() : appState.startDiscovery()
+                          } label: {
+                              Image(systemName: appState.isDiscovering ? "stop.circle" : "magnifyingglass")
+                          }
+                      }
+                      ToolbarItem(placement: .topBarLeading) {
+                          Button("Logi") { showLog = true }
+                      }
+                  }
+                  .sheet(isPresented: $showLog) {
+                      LogView()
+                  }
+                  .sheet(item: $appState.activeConsole) { console in
+                      PairingView(console: console)
+                  }
+              }
+          }
+
+          private struct LogView: View {
+              @EnvironmentObject var appState: AppState
+              @Environment(\.dismiss) var dismiss
+
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          VStack(alignment: .leading, spacing: 4) {
+                              ForEach(appState.logLines, id: \.self) { line in
+                                  Text(line).font(.system(.caption, design: .monospaced))
+                              }
+                          }
+                          .padding()
+                      }
+                      .navigationTitle("Logi")
+                      .toolbar {
+                          Button("Zamknij") { dismiss() }
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Write Swift - PairingView
+        run: |
+          cat > PSRemote/Views/PairingView.swift << 'EOF'
+          import SwiftUI
+
+          struct PairingView: View {
+              let console: Console
+              @EnvironmentObject var appState: AppState
+              @Environment(\.dismiss) var dismiss
+
+              @State private var pin: String = ""
+              @State private var isPairing = false
+              @State private var session: ChiakiSession?
+              @State private var navigateToStream = false
+
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Konsola") {
+                              LabeledContent("Nazwa", value: console.name)
+                              LabeledContent("Host", value: console.host)
+                          }
+
+                          Section("Kod PIN z konsoli") {
+                              TextField("00000000", text: $pin)
+                                  .keyboardType(.numberPad)
+                                  .font(.system(.title3, design: .monospaced))
+                          }
+
+                          Section {
+                              Button {
+                                  pair()
+                              } label: {
+                                  if isPairing {
+                                      ProgressView()
+                                  } else {
+                                      Text("Sparuj")
+                                  }
+                              }
+                              .disabled(pin.count < 8 || isPairing)
+                          }
+                      }
+                      .navigationTitle("Parowanie")
+                      .toolbar {
+                          Button("Anuluj") {
+                              session?.stop()
+                              dismiss()
+                          }
+                      }
+                      .navigationDestination(isPresented: $navigateToStream) {
+                          if let s = session {
+                              StreamingView(session: s)
+                          }
+                      }
+                  }
+              }
+
+              private func pair() {
+                  isPairing = true
+                  appState.log("Proba parowania z \(console.host), PIN: \(pin)")
+                  let s = ChiakiSession(host: console.host, port: console.port)
+                  s.onPaired = { [weak appState] in
+                      Task { @MainActor in
+                          appState?.log("Sparowano pomyslnie.")
+                          isPairing = false
+                          s.startStreaming()
+                          navigateToStream = true
+                      }
+                  }
+                  s.onError = { [weak appState] error in
+                      Task { @MainActor in
+                          appState?.log("Blad parowania: \(error)")
+                          isPairing = false
+                      }
+                  }
+                  s.startPairing(withPin: pin)
+                  session = s
+              }
+          }
+          EOF
+
+      - name: Write Swift - StreamingView
+        run: |
+          cat > PSRemote/Views/StreamingView.swift << 'EOF'
+          import SwiftUI
+
+          struct StreamingView: View {
+              let session: ChiakiSession
+              @State private var showingOverlay = true
+
+              var body: some View {
+                  ZStack {
+                      Color.black.ignoresSafeArea()
+
+                      VideoSurfaceView(session: session)
+                          .ignoresSafeArea()
+
+                      if showingOverlay {
+                          VStack {
+                              HStack {
+                                  Spacer()
+                                  Button {
+                                      session.stop()
+                                  } label: {
+                                      Image(systemName: "xmark.circle.fill")
+                                          .font(.title)
+                                          .foregroundStyle(.white)
+                                  }
+                                  .padding()
+                              }
+                              Spacer()
+                          }
+                      }
+                  }
+                  .onTapGesture { showingOverlay.toggle() }
+                  .statusBarHidden()
+              }
+          }
+          EOF
+
+      - name: Write Swift - VideoSurfaceView
+        run: |
+          cat > PSRemote/Views/VideoSurfaceView.swift << 'EOF'
+          import SwiftUI
+          import AVFoundation
+
+          struct VideoSurfaceView: UIViewRepresentable {
+              let session: ChiakiSession
+
+              func makeUIView(context: Context) -> VideoSurfaceUIView {
+                  let view = VideoSurfaceUIView()
+                  session.onVideoFrame = { pixelBuffer, pts in
+                      view.enqueue(pixelBuffer: pixelBuffer, pts: pts)
+                  }
+                  return view
+              }
+
+              func updateUIView(_ uiView: VideoSurfaceUIView, context: Context) {}
+          }
+
+          final class VideoSurfaceUIView: UIView {
+              override class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
+
+              var displayLayer: AVSampleBufferDisplayLayer {
+                  layer as! AVSampleBufferDisplayLayer
+              }
+
+              override init(frame: CGRect) {
+                  super.init(frame: frame)
+                  displayLayer.videoGravity = .resizeAspect
+                  displayLayer.flushAndRemoveImage()
+              }
+
+              required init?(coder: NSCoder) { fatalError() }
+
+              func enqueue(pixelBuffer: CVPixelBuffer, pts: CMTime) {
+                  var format: CMVideoFormatDescription?
+                  CMVideoFormatDescriptionCreateForImageBuffer(
+                      allocator: kCFAllocatorDefault,
+                      imageBuffer: pixelBuffer,
+                      formatDescriptionOut: &format
+                  )
+                  guard let fmt = format else { return }
+
+                  var timing = CMSampleTimingInfo(
+                      duration: .invalid,
+                      presentationTimeStamp: pts,
+                      decodeTimeStamp: .invalid
+                  )
+                  var sampleBuffer: CMSampleBuffer?
+                  CMSampleBufferCreateReadyWithImageBuffer(
+                      allocator: kCFAllocatorDefault,
+                      imageBuffer: pixelBuffer,
+                      formatDescription: fmt,
+                      sampleTiming: &timing,
+                      sampleBufferOut: &sampleBuffer
+                  )
+                  guard let sb = sampleBuffer else { return }
+
+                  DispatchQueue.main.async {
+                      if self.displayLayer.status == .failed {
+                          self.displayLayer.flush()
+                      }
+                      self.displayLayer.enqueue(sb)
+                  }
+              }
+          }
+          EOF
+
+      - name: Write Bridge header
+        run: |
+          cat > PSRemote/Bridge/PSRemote-Bridging-Header.h << 'EOF'
+          #import "ChiakiBridge.h"
+          EOF
+
+      - name: Write Bridge ChiakiBridge.h
+        run: |
+          cat > PSRemote/Bridge/ChiakiBridge.h << 'EOF'
+          #import <Foundation/Foundation.h>
+          #import <CoreMedia/CoreMedia.h>
+          #import <CoreVideo/CoreVideo.h>
+
+          NS_ASSUME_NONNULL_BEGIN
+
+          typedef void (^ChiakiConsoleFoundBlock)(NSDictionary *consoleInfo);
+          typedef void (^ChiakiErrorBlock)(NSString *message);
+          typedef void (^ChiakiPairedBlock)(void);
+          typedef void (^ChiakiVideoFrameBlock)(CVPixelBufferRef pixelBuffer, CMTime pts);
+          typedef void (^ChiakiAudioBlock)(NSData *opusPacket, CMTime pts);
+
+          @interface ChiakiDiscovery : NSObject
+          @property (nonatomic, copy, nullable) ChiakiConsoleFoundBlock onConsoleFound;
+          @property (nonatomic, copy, nullable) ChiakiErrorBlock onError;
+          - (void)start;
+          - (void)stop;
+          @end
+
+          @interface ChiakiSession : NSObject
+          @property (nonatomic, readonly) NSString *host;
+          @property (nonatomic, readonly) uint16_t port;
+          @property (nonatomic, copy, nullable) ChiakiPairedBlock onPaired;
+          @property (nonatomic, copy, nullable) ChiakiErrorBlock onError;
+          @property (nonatomic, copy, nullable) ChiakiVideoFrameBlock onVideoFrame;
+          @property (nonatomic, copy, nullable) ChiakiAudioBlock onAudioPacket;
+
+          - (instancetype)initWithHost:(NSString *)host port:(uint16_t)port;
+          - (void)startPairingWithPin:(NSString *)pin;
+          - (void)startStreaming;
+          - (void)stop;
+          @end
+
+          NS_ASSUME_NONNULL_END
+          EOF
+
+      - name: Write Bridge ChiakiBridge.mm
+        run: |
+          cat > PSRemote/Bridge/ChiakiBridge.mm << 'EOF'
+          #import "ChiakiBridge.h"
+
+          @implementation ChiakiDiscovery
+
+          - (void)start {
+              NSLog(@"[ChiakiBridge] Discovery start (stub)");
+              // TODO: podlaczyc chiaki-ng discovery
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                             dispatch_get_main_queue(), ^{
+                  if (self.onConsoleFound) {
+                      self.onConsoleFound(@{
+                          @"name": @"PS5-Stub",
+                          @"host": @"192.168.1.100",
+                          @"port": @(9295),
+                          @"isPS5": @(YES)
+                      });
+                  }
+              });
+          }
+
+          - (void)stop {
+              NSLog(@"[ChiakiBridge] Discovery stop (stub)");
+          }
+
+          @end
+
+          @implementation ChiakiSession
+
+          - (instancetype)initWithHost:(NSString *)host port:(uint16_t)port {
+              if (self = [super init]) {
+                  _host = [host copy];
+                  _port = port;
+              }
+              return self;
+          }
+
+          - (void)startPairingWithPin:(NSString *)pin {
+              NSLog(@"[ChiakiBridge] Pairing stub z %@ PIN=%@", self.host, pin);
+              // TODO: podlaczyc chiaki-ng session
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                             dispatch_get_main_queue(), ^{
+                  if (self.onPaired) self.onPaired();
+              });
+          }
+
+          - (void)startStreaming {
+              NSLog(@"[ChiakiBridge] Start streaming stub");
+          }
+
+          - (void)stop {
+              NSLog(@"[ChiakiBridge] Stop stub");
+          }
+
+          @end
+          EOF
+
+      - name: Write assets
+        run: |
+          cat > PSRemote/Resources/Assets.xcassets/Contents.json << 'EOF'
+          {
+            "info" : { "author" : "xcode", "version" : 1 }
+          }
+          EOF
+
+          cat > PSRemote/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json << 'EOF'
+          {
+            "images" : [
+              {
+                "idiom" : "universal",
+                "platform" : "ios",
+                "size" : "1024x1024"
+              }
+            ],
+            "info" : { "author" : "xcode", "version" : 1 }
+          }
+          EOF
+
+      - name: Write Makefile
+        run: |
+          cat > Makefile << 'EOF'
+          .PHONY: gen build clean ipa
+
+          gen:
+          	xcodegen generate
+
+          build: gen
+          	xcodebuild -project PSRemote.xcodeproj \
+          		-scheme PSRemote \
+          		-configuration Debug \
+          		-sdk iphonesimulator \
+          		-derivedDataPath build \
+          		CODE_SIGNING_ALLOWED=NO \
+          		build
+
+          ipa: gen
+          	xcodebuild -project PSRemote.xcodeproj \
+          		-scheme PSRemote \
+          		-configuration Release \
+          		-sdk iphoneos \
+          		-derivedDataPath build \
+          		CODE_SIGNING_ALLOWED=NO \
+          		CODE_SIGNING_REQUIRED=NO \
+          		CODE_SIGN_IDENTITY="" \
+          		build
+          	rm -rf Payload PSRemote.ipa
+          	mkdir -p Payload
+          	cp -r build/Build/Products/Release-iphoneos/PSRemote.app Payload/
+          	zip -qr PSRemote.ipa Payload
+          	@echo "Gotowe: PSRemote.ipa"
+
+          clean:
+          	rm -rf build PSRemote.xcodeproj Payload PSRemote.ipa
+          EOF
+
+      - name: Write gitignore
+        run: |
+          cat > .gitignore << 'EOF'
+          build/
+          Payload/
+          *.ipa
+          *.xcuserstate
+          xcuserdata/
+          .DS_Store
+          PSRemote.xcodeproj/
+          DerivedData/
+          EOF
+
+      - name: Write README
+        run: |
+          cat > README.md << 'EOF'
+          # PSRemote
+
+          Aplikacja iOS do laczenia sie z PlayStation 4/5 (Remote Play).
+          Silnik: chiaki-ng (do podlaczenia).
+          GUI: SwiftUI.
+
+          ## Build lokalnie
+
+          Wymagania: macOS, Xcode 15+, XcodeGen.
+
+          make ipa
+
+          ## Build w chmurze
+
+          Push na main -> GitHub Actions buduje .ipa automatycznie.
+          Artefakt: Actions -> ostatni run -> Artifacts -> PSRemote-unsigned-ipa.
+          EOF
+
+      - name: Commit and push
+        run: |
+          git add .
+          git diff --cached --quiet && echo "Brak zmian do commitu" || git commit -m "Bootstrap: pelna struktura projektu PSRemote"
+          git push
